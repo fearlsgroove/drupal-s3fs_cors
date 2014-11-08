@@ -70,11 +70,9 @@ function s3fs_cors_element_info() {
     '#theme' => 's3fs_cors_upload',
     '#theme_wrappers' => array('form_element'),
     '#upload_validators' => array(),
-    // The S3 directory relative to the bucket root where files should be
-    // uploaded.
+    // The S3 directory relative to the bucket root where files are uploaded.
     '#upload_location' => !empty($config['root_folder']) ? $config['root_folder'] : '',
     '#size' => 22,
-    '#s3_acl' => 'public-read',
     '#extended' => FALSE,
     '#attached' => array(
       'js' => array(
@@ -96,9 +94,6 @@ function s3fs_cors_field_widget_info() {
     's3fs_cors' => array(
       'label' => t('S3 CORS File Upload'),
       'field types' => array('file'),
-      'settings' => array(
-        's3_acl' => 'public-read',
-      ),
       'behaviors' => array(
         'multiple values' => FIELD_BEHAVIOR_CUSTOM,
         'default value' => FIELD_BEHAVIOR_NONE,
@@ -107,36 +102,6 @@ function s3fs_cors_field_widget_info() {
       'weight' => 999,
     ),
   );
-}
-
-/**
- * Implements hook_field_widget_settings_form().
- */
-function s3fs_cors_field_widget_settings_form($field, $instance) {
-  $widget = $instance['widget'];
-  $settings = $widget['settings'];
-  
-  // TODO: Do we actually want to let users configure this? Every file except
-  // private:// takeover files has to be public-read, or no users will be able
-  // to download them because they don't know the S3 credentials.
-  if ($widget['type'] == 's3fs_cors') {
-    $form = array();
-    // Allow administrators to choose ACL permissions for S3 objects created
-    // via this upload widget.
-    $form['s3_acl'] = array(
-      '#type' => 'select',
-      '#title' => t('ACL'),
-      '#description' => t(
-        'In addition to whatever options you select here, the object owner will always be granted
-        full control of all objects. See the !api_link for more information.',
-        array('!api_link' => l('API documentation', 'http://docs.aws.amazon.com/AmazonS3/latest/dev/ACLOverview.html'))
-      ),
-      '#options' => _s3fs_cors_acl_options(),
-      '#default_value' => isset($settings['s3_acl']) ? $settings['s3_acl'] : '',
-    );
-  }
-  
-  return $form;
 }
 
 /**
@@ -181,8 +146,8 @@ function s3fs_cors_field_widget_form(&$form, &$form_state, $field, $instance, $l
     $items = $field_state['items'];
   }
   
-  // Essentially we use the s3fs_cors_upload type, extended with some
-  // enhancements. Which, is an extension of the managed_file type.
+  // Essentially, we use the s3fs_cors_upload type, extended with some
+  // enhancements. Which is an extension of the managed_file type.
   $element_info = element_info('s3fs_cors_upload');
   $element += array(
     '#type' => 's3fs_cors_upload',
@@ -192,7 +157,6 @@ function s3fs_cors_field_widget_form(&$form, &$form_state, $field, $instance, $l
     '#upload_validators' => file_field_widget_upload_validators($field, $instance),
     '#value_callback' => 's3fs_cors_field_widget_value',
     '#process' => array_merge($element_info['#process'], array('file_field_widget_process')),
-    '#s3_acl' => $instance['widget']['settings']['s3_acl'],
     //'#progress_indicator' => $instance['widget']['settings']['progress_indicator'],
     // Allows this field to return an array instead of a single value.
     '#extended' => TRUE,
@@ -307,18 +271,13 @@ function s3fs_cors_upload_process($element, &$form_state, &$form) {
   
   // If the #upload_location is set, we add a new key to the $form array that
   // stores this information in a way that is easier for us to look up in the
-  // s3fs_cors_sign_request() function where we don't know the element's
+  // s3fs_cors_sign_request() function, where we don't know the element's
   // complete parentage. The data is stored as part of the $form array so we
   // can retrieve it server side but ensure that it's never exposed client side,
   // since doing so would allow users to upload files to an arbitrary directory
   // in the S3 bucket via local HTML modification.
   if (isset($element['#upload_location'])) {
     $form["#{$element['upload_button']['#name']}_location"] = $element['#upload_location'];
-  }
-  
-  // Do the same thing for ACL settings.
-  if (isset($element['#s3_acl'])) {
-    $form["#{$element['upload_button']['#name']}_s3_acl"] = $element['#s3_acl'];
   }
   
   if ($fid && $element['#file']) {
@@ -346,19 +305,23 @@ function s3fs_cors_upload_process($element, &$form_state, &$form) {
   $element['fid'] = array(
     '#type' => 'hidden',
     '#value' => $fid,
+    '#attributes' => array('class' => array('fid')),
   );
   $element['filename'] = array(
     '#type' => 'hidden',
     '#default_value' => isset($element['#file']->filename) ? $element['#file']->filename : '',
+    '#attributes' => array('class' => array('filename')),
     // This keeps theme_file_widget() happy.
     '#markup' => '',
   );
   $element['filemime'] = array(
     '#type' => 'hidden',
+    '#attributes' => array('class' => array('filemime')),
     '#default_value' => isset($element['#file']->filemime) ? $element['#file']->filemime : '',
   );
   $element['filesize'] = array(
     '#type' => 'hidden',
+    '#attributes' => array('class' => array('filesize')),
     '#default_value' => isset($element['#file']->filesize) ? $element['#file']->filesize : '',
   );
   
@@ -387,8 +350,8 @@ function s3fs_cors_upload_value(&$element, $input = FALSE, $form_state = NULL) {
   // TODO: $element['#extended'] somehow useful here?
   $form_state_file_field = $form_state['input'];
   $file_input_array = drupal_array_get_nested_value($form_state['input'], $parents);
-  if (isset($form_state['input'][$parents[0]][$parents[1]][$parents[2]]['fid'])) {
-    $fid = $form_state['input'][$parents[0]][$parents[1]][$parents[2]]['fid'];
+  if (isset($file_input_array['fid'])) {
+    $fid = $file_input_array['fid'];
   }
   else {
     $fid = 0;
@@ -575,9 +538,7 @@ function s3fs_cors_sign_request() {
   // Careful what you do with these. Who knows what kind of garbage someone
   // may have POSTed to this callback? Gross!
   $filename = $_POST['filename'];
-  $filesize = (int) $_POST['filesize'];
   $filemime = $_POST['filemime'];
-  $triggering_element = $_POST['triggering_element'];
   
   // Get the actual form from the form cache.
   list($form, $form_state) = ajax_get_form();
@@ -585,11 +546,9 @@ function s3fs_cors_sign_request() {
   
   // Check for an upload location and make use of it.
   $base_dir = '';
-  if (isset($form["#{$triggering_element}_location"])) {
-    $base_dir = file_uri_target($form["#{$triggering_element}_location"]);
+  if (isset($form["#upload_location"])) {
+    $base_dir = file_uri_target($form["#upload_location"]);
   }
-  
-  $acl = isset($form["#{$triggering_element}_s3_acl"]) ? $form["#{$triggering_element}_s3_acl"] : 'public-read';
   
   $library = _s3fs_load_awssdk2_library();
   if (!$library['loaded']) {
@@ -644,33 +603,6 @@ function s3fs_cors_sign_request() {
   print json_encode($data);
   drupal_exit();
 }
-
-/**
- * Get an array of ACL options and human readable descriptions.
- *
- * More information about ACL options:
- * http://docs.aws.amazon.com/AmazonS3/latest/dev/ACLOverview.html
- *
- * Also see the constants defined in s3.class.php.
- *
- * @return array
- *   An array of possible ACL property values for use when creating a new
- *   object in S3. ACL settings determine what permissions a new object should
- *   have.
- */
-function _s3fs_cors_acl_options() {
-  // Options are taken from here:
-  // http://docs.aws.amazon.com/AmazonS3/latest/dev/ACLOverview.html
-  return array(
-    'private' => t('Only the object owner has access. (private)'),
-    'public-read' => t('All users get READ access. (public-read)'),
-    'public-read-write' => t('All users get READ & WRITE access. Not recommended. (public-read-write)'),
-    'authenticated-read' => t('Authenticated users get READ access. (authenticated-read)'),
-    'bucket-owner-read' => t('Bucket owner gets READ access. (bucket-owner-read)'),
-    'bucket-owner-full-control' => t('Bucket owner has full control. (bucket-owner-full-control)'),
-  );
-}
-
 
 /**
  * Custom version of drupal's file_save() function.

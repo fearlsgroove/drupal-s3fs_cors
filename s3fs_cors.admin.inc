@@ -41,6 +41,7 @@ function _s3fs_cors_admin_form_submit($form, &$form_state) {
       'CORSRules' => array(
         array(
           'AllowedHeaders' => array('*'),
+          'ExposeHeaders' => array('x-amz-version-id'),
           'AllowedMethods' => array('POST'),
           'MaxAgeSeconds' => 3000,
           'AllowedOrigins' => array("http://$cors_origin", "https://$cors_origin"),

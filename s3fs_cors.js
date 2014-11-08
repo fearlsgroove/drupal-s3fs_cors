@@ -8,94 +8,101 @@
   Drupal.behaviors.S3fsCORSUpload = {};
   
   S3fsCORSUpload.handleUpload = function(form, triggering_element) {
-    // Retrieve the file object.
-    var file = $('.s3fs-cors-upload-file');
-    var file_obj = file[0].files[0];
-    // And the form_build_id which we need to lookup the form during our AJAX
-    // request.
-    var form_build_id = form.find('input[name="form_build_id"]').val();
-    if (typeof file_obj != 'undefined') {
-      // Add a placholder for our progress bar.
-      file.hide().after('<div id="s3fs-cors-progress" style="width: 270px; float: left;">' + Drupal.t('Preparing upload ...') + '</div>');
-      
-      // Use the file object and ask Drupal to generate the appropriate signed
-      // request for us.
-      var postData = {
-        filename: file_obj.name,
-        filesize: file_obj.size,
-        filemime: file_obj.type,
-        triggering_element: triggering_element,
-        form_build_id: form_build_id
-      };
-      
-      // Send a POST to Drupal to get back the required paramaters for signing
-      // a CORS request.
-      $.post(Drupal.settings.basePath + 'ajax/s3fs_cors', postData, function(data) {
-        // Take the signed data and construct a form out of it.
-        var fd = new FormData();
-        $.each(data.inputs, function(key, value) {
-          fd.append(key, value);
-        });
-        
-        // Add the file to be uploaded.
-        fd.append('file', file_obj);
-        
-        // Execute the AJAX request to S3.
-        $.ajax({
-          // Use a protocol-relative URL for the POST target, to avoid browser complaints.
-          url: data.form.action,
-          processData: false,
-          data: fd,
-          type: 'POST',
-          cache: false,
-          contentType: false,
-          mimeType: 'multipart/form-data',
-          // This works with jQuery 1.5.1+, however the withCredentials doesn't
-          // stick w/ older versions. So we handle it in the beforeSend method.
-          xhrFields: {
-            withCredentials: true
-          },
-          xhr: function() {
-            myXhr = $.ajaxSettings.xhr();
-            if (myXhr.upload) {
-              $('#s3fs-cors-progress').html('');
-              myXhr.upload.addEventListener('progress', (function(e) {
-                return S3fsCORSUpload.displayProgress(file, e);
-              }), false);
-            }
-            return myXhr;
-          },
-          error: function() {
-            // TODO: deal w/ upload errors.
-            console.log(arguments);
-          },
-          complete: function() {
-            // Update the hidden fields to tell Drupal about the file that
-            // was just uploaded.
-            file.parent().find('input[name$="[filemime]"]').val(file_obj.type);
-            file.parent().find('input[name$="[filesize]"]').val(file_obj.size);
-            // Make sure and use the filename provided by Drupal as it may have
-            // been renamed.
-            file.parent().find('input[name$="[filename]"]').val(data.file_real);
-            // Re-enable all the submit buttons.
-            form.find('input[type="submit"]').prop('disabled', false);
-            // Trigger the #ajax method for the upload button that was
-            // initially clicked to upload the file.
-            var button_id = file.parent().find('input.cors-form-submit').attr('id');
-            ajax = Drupal.ajax[button_id];
-            // Prevent Drupal from transferring the file twice as part of the
-            // form rebuild.
-            var file_selector_id = file.attr('id');
-            $(ajax.form[0]).find('#' + file_selector_id).remove();
-
-            ajax.form.ajaxSubmit(ajax.options);
-          }
-        });
+    var file_input = $('.s3fs-cors-upload-file');
+    var widget = file_input.parent();
+    if (file_input[0].files === undefined || window.FormData === undefined) {
+      // If the FormData API is unavailable, or we're in IE8/9, fall back to
+      // a non-CORS upload.
+      // TODO: Non-CORS upload.
+      alert('Non-CORS');
+      return;
+    }
+    
+    // For now, we only support single-value file fields.
+    var file_obj = file_input[0].files[0];
+    
+    // Replace the file <input> with a placeholder for our progress bar.
+    file_input.hide().after($('<div>', {
+      id: 's3fs-cors-progress',
+      style: 'width: 270px; min-height: 2em; float: left; text-align: center; line-height: 2em; margin-right: 5px;',
+      text: Drupal.t('Preparing upload ...'),
+    }));
+    
+    var postData = {
+      filename: file_obj.name,
+      filemime: file_obj.type,
+      // Need this to look up the form during our signing request.
+      form_build_id: form.find('input[name="form_build_id"]').val()
+    };
+    
+    // Ask Drupal to generate the appropriate signed request for us.
+    $.post('/ajax/s3fs_cors', postData, function(data) {
+      // Use the HTML5 FormData API to build a POST form to send to S3.
+      var fd = new FormData();
+      // Use the signed form data returnd from /ajax/s3fs_cors.
+      $.each(data.inputs, function(key, value) {
+        fd.append(key, value);
       });
-    }
-    else {
-      form.submit();
-    }
+      fd.append('file', file_obj);
+      
+      // Send the AJAX request to S3.
+      $.ajax({
+        // data.form.action is the S3 URL to which this upload will be POSTed.
+        url: data.form.action,
+        type: 'POST',
+        mimeType: 'multipart/form-data',
+        data: fd,
+        cache: false,
+        contentType: false,
+        processData: false,
+        xhrFields: {
+          withCredentials: true
+        },
+        xhr: function() {
+          myXhr = $.ajaxSettings.xhr();
+          if (myXhr.upload) {
+            myXhr.upload.addEventListener('progress', (function(e) {
+              return S3fsCORSUpload.displayProgress(file_input, e);
+            }), false);
+          }
+          return myXhr;
+        },
+        error: function() {
+          // TODO: deal w/ upload errors.
+          //console.log(arguments);
+          // Re-enable all the submit buttons in the form.
+          form.find('input[type="submit"]').prop('disabled', false);
+        },
+        complete: function() {
+          // Update the hidden fields with the metadata for the file we just
+          // uploaded.
+          var widget = file_input.parent();
+          widget.find('input.filemime').val(file_obj.type);
+          widget.find('input.filesize').val(file_obj.size);
+          // Use the filename provided by Drupal, as it may have been renamed.
+          widget.find('input.filename').val(data.file_real);
+          
+          // Re-enable all the submit buttons in the form.
+          form.find('input[type="submit"]').prop('disabled', false);
+          
+          // Now that the upload to S3 is complete, trigger the original
+          // Drupal action for the Upload button, in order to to inform
+          // Drupal of the file.
+          // TODO: Only do this is the Upload button was the submission source.
+          // Don't do it if the overall form's Save button was clicked first. But still remove the file from the form!
+          // TODO: This line probably needs a tweak for multi-value file fields.
+          var button_id = widget.find('input.cors-form-submit').attr('id');
+          ajax = Drupal.ajax[button_id];
+          
+          // Avoid uploading the file itself to Drupal.
+          var file_selector_id = file_input.attr('id');
+          $(ajax.form[0]).find('#' + file_selector_id).remove();
+          
+          // Submit the form to Drupal.
+          ajax.form.ajaxSubmit(ajax.options);
+        } // End final form submit.
+      }); // End S3 upload request.
+    }); // End signing request
   };
   
   /**
@@ -105,10 +112,16 @@
    * @param event
    *   And XMLHttpRequestProgressEvent object.
    */
-  S3fsCORSUpload.displayProgress = function(el, event) {
+  S3fsCORSUpload.displayProgress = function(element, event) {
     if (event.lengthComputable) {
+      var progress = $('#s3fs-cors-progress');
+      // Remove the placeholder text at the last possible moment. But don't mess
+      // with progress.text after that, or we'll destroy the progress bar.
+      if (progress.text() == Drupal.t('Preparing upload ...')) {
+        progress.text('');
+      }
       percent = Math.floor((event.loaded / event.total) * 100);
-      $('#s3fs-cors-progress').progressbar({value: percent});
+      progress.progressbar({value: percent});
       return true;
     }
   };
