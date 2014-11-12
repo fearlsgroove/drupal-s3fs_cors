@@ -265,9 +265,10 @@ function s3fs_cors_upload_process($element, &$form_state, &$form) {
     '#type' => 'submit',
     '#value' => t('Remove'),
     '#validate' => array(),
-    '#submit' => array('s3fs_cors_remove_submit'),
     '#limit_validation_errors' => array($element['#parents']),
+    '#attributes' => array('class' => array('cors-form-remove')),
     '#weight' => -5,
+    '#submit' => array('s3fs_cors_remove_submit'),
     '#ajax' => $ajax_settings,
   );
   
