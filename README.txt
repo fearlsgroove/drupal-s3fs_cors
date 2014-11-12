@@ -11,8 +11,8 @@ field with your site's domain name, and submit it.
 ============
 Known Issues
 ============
-CORS uploading is not possible in IE8 or 9. However, S3FS CORS Upload will
-gracefully fall back to a non-CORS solution in those ancient browsers. This
-does mean your Drupal server will be taxed more by users of IE8/9 uploading
-files, though. You might want to recommend that they upgrade to a modern
-browser.
+CORS uploading is not supported in IE8 or 9. Eventually, S3FS CORS Upload may
+be redesigned to be able to fall back to a non-CORS solution in those ancient
+browsers. Until then, you should strongly reccomend that your users upgrade
+to a modern browser. If they cannot, they might try using Google Chrome Frame,
+which is a plugin for IE that makes it run as Chrome under the hood.
