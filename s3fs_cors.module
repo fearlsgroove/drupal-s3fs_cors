@@ -16,14 +16,15 @@ function s3fs_cors_menu() {
     'access callback' => TRUE,
     'type' => MENU_CALLBACK,
   );
-  $items['admin/config/media/s3fs_cors'] = array(
-    'title' => 'S3 File System CORS Upload',
+  $items['admin/config/media/s3fs/cors'] = array(
+    'title' => 'CORS Upload',
     'description' => 'Configure S3 File System CORS Upload.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('s3fs_cors_admin_form'),
     'access arguments' => array('administer s3fs CORS'),
     'file' => 's3fs_cors.admin.inc',
-    'type' => MENU_NORMAL_ITEM,
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 20,
   );
   return $items;
 }
@@ -46,7 +47,7 @@ function s3fs_cors_permission() {
  * Implements hook_help().
  */
 function s3fs_cors_help($path, $arg) {
-  if ($path == 'admin/config/media/s3fs_cors') {
+  if ($path == 'admin/config/media/s3fs/cors') {
     $msg = t('Configure your S3 Bucket\'s CORS configuration from this page.
       Please be aware that submitting this form will <b>overwrite</b> your bucket\'s current CORS config.<br>
       So if you intend to configure your bucket\'s CORS policy manually, <b>never submit this form</b>.'
@@ -117,10 +118,7 @@ function s3fs_cors_form_alter(&$form, $form_state, $form_id) {
   if (($form_id == 'field_ui_field_edit_form' && $form['#field']['type'] == 'file')
     || ($form_id == 'field_ui_field_settings_form' && $form['field']['type']['#value'] == 'file')) {
     
-    //$form['field']['settings']['uri_scheme']['#options'] = array('s3' => t('Amazon S3'));
-    
     // Repurpose the file_directory field.
-    //$form['instance']['settings']['file_directory']['#title'] = t('Object prefix');
     $form['instance']['settings']['file_directory']['#description'] = t(
       'Optional subdirectory within the S3 bucket in which to place files uploaded through this field. Do not include preceding or trailing slashes.'
     );

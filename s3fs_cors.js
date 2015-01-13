@@ -1,6 +1,6 @@
 /**
  * @file
- * Enables client side uploading of files to S3.
+ * Enables client side file uploading to S3.
  */
 
 (function ($) {
@@ -45,7 +45,7 @@
     file_input.hide().after(progress_bar);
     
     // This function undoes the form alterations we made.
-    function form_cleanup () {
+    function form_cleanup() {
       file_input.show();
       progress_bar.remove();
       form.find('input[type="submit"]').prop('disabled', false);
@@ -69,7 +69,7 @@
     });
 
     // Step 2: With the signed form data, perform the CORS upload to S3.
-    function upload_to_s3 (data, textStatus, jqXHR) {
+    function upload_to_s3(data, textStatus, jqXHR) {
       // Use the HTML5 FormData API to build a POST form to send to S3.
       var fd = new FormData();
       // Use the signed form data returnd from /ajax/s3fs_cors.
@@ -111,7 +111,7 @@
     }
 
     // Step 3: Update the file metadata and submit the form to Drupal.
-    function submit_to_drupal (data, textStatus, jqXHR) {
+    function submit_to_drupal(data, textStatus, jqXHR) {
       // Update the metadata fields for the file we just uploaded.
       widget.find('input.filemime').val(file_obj.type);
       widget.find('input.filesize').val(file_obj.size);
