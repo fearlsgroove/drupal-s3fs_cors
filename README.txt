@@ -4,7 +4,7 @@ S3 File System module, rather than AmazonS3.
 ===================
     INSTALLATON
 ===================
-You must install the jQuery Update module and set it to use jQuery v1.7 or
+You must install the jQuery Update module and set it to use jQuery v1.5 or
 higher. Otherwise, the CORS uploads will fail. Note that setting it higher
 than 1.8 can cause backwards compatibility problems for other modules'
 javascript code.
