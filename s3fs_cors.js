@@ -33,7 +33,7 @@
     // Disable all the submit buttons, so users can't accidentally mess
     // up the workflow. We'll submit the form via JS after file uploads
     // are complete.
-    form.find('input[type="submit"]').prop('disabled', 'disabled');
+    form.find('input[type="submit"]').attr('disabled', 'disabled');
     
     var progress_bar = $('<div>', {
       id: 's3fs-cors-progress',
@@ -48,7 +48,7 @@
     function form_cleanup() {
       file_input.show();
       progress_bar.remove();
-      form.find('input[type="submit"]').prop('disabled', false);
+      form.find('input[type="submit"]').removeAttr('disabled');
     }
     
     // Step 1: Get the signed S3 upload form from Drupal.
@@ -62,7 +62,8 @@
         form_build_id: form.find('input[name="form_build_id"]').val()
       },
       error: function(jqXHR, textStatus, errorThrown) {
-        alert('An error occured while preparing to upload the file to S3:\n' + jqXHR.responseJSON.error);
+        var error_json = jQuery.parseJSON(jqXHR.responseText);
+        alert('An error occured while preparing to upload the file to S3:\n' + error_json.error);
         form_cleanup();
       },
       success: upload_to_s3,
@@ -135,7 +136,7 @@
       }
       else {
         // Re-enable all the submit buttons in the form.
-        form.find('input[type="submit"]').prop('disabled', false);
+        form.find('input[type="submit"]').removeAttr('disabled');
         
         // TODO: This line probably needs a tweak for multi-value file fields.
         var button_id = widget.find('input.cors-form-submit').attr('id');
