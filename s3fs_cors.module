@@ -71,8 +71,9 @@ function s3fs_cors_element_info() {
     '#theme' => 's3fs_cors_upload',
     '#theme_wrappers' => array('form_element'),
     '#upload_validators' => array(),
-    // The S3 directory relative to the bucket root where files are uploaded.
-    '#upload_location' => !empty($config['root_folder']) ? $config['root_folder'] : '',
+    // The default directory for uploaded files. This will be overidden later,
+    // but we must set it here to satisfy an internal Drupalism.
+    '#upload_location' => 's3://',
     '#size' => 22,
     '#extended' => FALSE,
     '#attached' => array(
@@ -94,7 +95,7 @@ function s3fs_cors_field_widget_info() {
   return array(
     's3fs_cors' => array(
       'label' => t('S3 CORS File Upload'),
-      'field types' => array('file'),
+      'field types' => array('file', 'image'),
       'behaviors' => array(
         'multiple values' => FIELD_BEHAVIOR_CUSTOM,
         'default value' => FIELD_BEHAVIOR_NONE,
@@ -103,26 +104,6 @@ function s3fs_cors_field_widget_info() {
       'weight' => 999,
     ),
   );
-}
-
-/**
- * Implements hook_form_alter().
- */
-function s3fs_cors_form_alter(&$form, $form_state, $form_id) {
-  // There's no hook in Drupal 7 to alter the field settings form provided by
-  // another module, so we need to hack it like this.
-  // @see http://drupal.org/node/1308860 for more info
-  // TODO: Find a way to determine if the s3fs CORS Upload Widget has been
-  // selected for use in this field. Hacking up the file form field when it
-  // hasn't been selected is not appropriate.
-  if (($form_id == 'field_ui_field_edit_form' && $form['#field']['type'] == 'file')
-    || ($form_id == 'field_ui_field_settings_form' && $form['field']['type']['#value'] == 'file')) {
-    
-    // Repurpose the file_directory field.
-    $form['instance']['settings']['file_directory']['#description'] = t(
-      'Optional subdirectory within the S3 bucket in which to place files uploaded through this field. Do not include preceding or trailing slashes.'
-    );
-  }
 }
 
 /**
@@ -282,16 +263,10 @@ function s3fs_cors_upload_process($element, &$form_state, &$form) {
     '#attributes' => array('class' => array('s3fs-cors-upload-file')),
   );
   
-  // If the #upload_location is set, we add a new key to the $form array that
-  // stores this information in a way that is easier for us to look up in the
-  // s3fs_cors_sign_request() function, where we don't know the element's
-  // complete parentage. The data is stored as part of the $form array so we
-  // can retrieve it server side but ensure that it's never exposed client side,
-  // since doing so would allow users to upload files to an arbitrary directory
-  // in the S3 bucket via local HTML modification.
-  if (isset($element['#upload_location'])) {
-    $form["#{$element['upload_button']['#name']}_location"] = $element['#upload_location'];
-  }
+  // We need to cache the #upload_location uri so that
+  // s3fs_cors_sign_request(), which is called in a separate request,
+  // can determine where the file should be uploaded.
+  s3fs_cors_set_cached_upload_location_uri($element['#upload_location']);
   
   if ($fid && $element['#file']) {
     $element['filelink'] = array(
@@ -539,15 +514,6 @@ function s3fs_cors_sign_request() {
   $filename = $_POST['filename'];
   $filemime = $_POST['filemime'];
   
-  // Get the form from the form cache.
-  list($form, $form_state) = ajax_get_form();
-  
-  // Check for an upload location and make use of it.
-  $base_dir = '';
-  if (isset($form["#upload_location"])) {
-    $base_dir = file_uri_target($form["#upload_location"]);
-  }
-  
   $library = _s3fs_load_awssdk2_library();
   if (!$library['loaded']) {
     $error = t('Unable to load the AWS SDK for PHP. Please check you have the library installed correctly and have your S3 credentials configured.');
@@ -560,25 +526,21 @@ function s3fs_cors_sign_request() {
   $config = _s3fs_get_config();
   $client = _s3fs_get_amazons3_client($config);
   
+  // Get the cached upload location for this form submission.
+  $upload_location_uri = s3fs_cors_get_cached_upload_location_uri();
+  
   // Use file_create_filename() to avoid overwriting an existing file.
-  // TODO: Support public:// and private:// files.
-  $directory = 's3://';
-  if (!empty($base_dir)) {
-    $directory .= "$base_dir/";
-  }
-  $uri = file_create_filename($filename, $directory);
-  $key = file_uri_target($uri);
-  if (!empty($config['root_folder'])) {
-    $key = "{$config['root_folder']}/$key";
-  }
+  $uri = file_create_filename($filename, $upload_location_uri);
+  $s3_key = file_uri_target($uri);
   
   $options = array(
-    // TODO: Handle private:// files, which needs acl = 'private'.
-    'acl' => 'public-read',
+    'acl' => (strpos($uri, 'private://') === FALSE) ? 'public-read' : 'private',
     // Use a "starts-with" comparison instead of "equals" for Content-Type.
     // Not sure this is actually needed, but the old code did it.
     'Content-Type' => "^$filemime",
-    'key' => $key,
+    // The root folder is not part of a file's URI, so we don't add it until
+    // we're setting up the final s3 parameters.
+    'key' => !empty($config['root_folder']) ? "{$config['root_folder']}/$s3_key" : $s3_key,
     'ttd' => '+5 minutes',
   );
   
@@ -593,7 +555,7 @@ function s3fs_cors_sign_request() {
     'inputs' => $post_object->getFormInputs(),
     'form' => $post_object->getFormAttributes(),
     // Tell our javascript the filename that Drupal ended up giving us.
-    'file_real' => drupal_basename($key),
+    'file_real' => drupal_basename($s3_key),
   );
   
   // Prepare to send JSON text to the browser.
@@ -634,4 +596,32 @@ function _s3fs_cors_file_save(stdClass $file) {
   entity_get_controller('file')->resetCache(array($file->fid));
 
   return $file;
+}
+
+
+/**
+ * Stores a CORS form's upload location in the cache, for retrieval during s3fs_cors_sign_request().
+ */
+function s3fs_cors_set_cached_upload_location_uri($upload_location) {
+  // Cache the upload location.
+  $cache_key = drupal_get_token();
+  // The requests across which this cached data must be stored are done sequentially, so the data
+  // need not be left in the cache for long.
+  $expire = 60;
+  cache_set($cache_key, $upload_location, 'cache', REQUEST_TIME + $expire);
+}
+
+/**
+ * Stores a CORS form's upload location in the cache, for retrieval during s3fs_cors_sign_request().
+ */
+function s3fs_cors_get_cached_upload_location_uri() {
+  // Retrieve the cached upload location for the current user's session.
+  $cache = cache_get(drupal_get_token(), 'cache');
+  if ($cache) {
+    return $cache->data;
+  }
+  else {
+    // If the upload location isn't cached for some reason, use the bucket root.
+    return 's3://';
+  }
 }
