@@ -108,7 +108,7 @@
           alert('An error occured during the upload to S3: ' + errorThrown);
           form_cleanup();
         },
-        complete: submit_to_drupal
+        success: submit_to_drupal
       });
     }
 
