@@ -6,19 +6,19 @@
 (function ($) {
   S3fsCORSUpload = {};
   Drupal.behaviors.S3fsCORSUpload = {};
-  
-  S3fsCORSUpload.handleUpload = function(file_input, remaining_inputs, button_name) {
+  var remaining_cors_inputs = [];
+  S3fsCORSUpload.handleUpload = function(file_input, button_name) {
     var form = file_input.closest('form');
     var widget = file_input.parent();
     // The name of the file that Drupal returns from the signing request.
     // We declare it here so multiple functions can access it.
     var file_real = null;
-    
+
     // Don't do anything if the <input> is empty.
     if (!file_input.val()) {
       return;
     }
-    
+
     if (file_input[0].files === undefined || window.FormData === undefined) {
       // If we're in IE8/9, or the FormData API is unavailable, fall back to
       // a non-CORS upload.
@@ -26,16 +26,15 @@
       alert('CORS Upload is not supported in IE8 or 9. Sorry.');
       return;
     }
-    
+
     // For now, we only support single-value file fields.
-    // TODO: Add support for multi-value file fields.
     var file_obj = file_input[0].files[0];
-    
+
     // Disable all the submit buttons, so users can't accidentally mess
     // up the workflow. We'll submit the form via JS after file uploads
     // are complete.
     form.find('input[type="submit"]').attr('disabled', 'disabled');
-    
+
     var progress_bar = $('<div>', {
       id: 's3fs-cors-progress',
       style: 'width: 270px; min-height: 2em; float: left; text-align: center; line-height: 2em; margin-right: 5px;',
@@ -44,14 +43,14 @@
 
     // Replace the file <input> with our progress bar.
     file_input.hide().after(progress_bar);
-    
+
     // This function undoes the form alterations we made.
     function form_cleanup() {
       file_input.show();
       progress_bar.remove();
       form.find('input[type="submit"]').removeAttr('disabled');
     }
-    
+
     // Step 1: Get the signed S3 upload form from Drupal.
     $.ajax({
       url: '/ajax/s3fs_cors',
@@ -108,7 +107,7 @@
           alert('An error occured during the upload to S3: ' + errorThrown);
           form_cleanup();
         },
-        success: submit_to_drupal
+        complete: submit_to_drupal
       });
     }
 
@@ -118,39 +117,64 @@
       widget.find('input.filemime').val(file_obj.type);
       widget.find('input.filesize').val(file_obj.size);
       widget.find('input.filename').val(file_real);
-      
-      // In an upload button press, remaining_inputs will be undefined. But in
-      // a form submission, remaining_inputs will be sent in as an integer
-      // When it's 0, there are no files left to upload, so we execute the full
-      // form submission.
-      if (remaining_inputs === 0) {
-        // Remove our submit handler first, so we don't infinitely loop.
-        form.unbind('submit');
-        // Add the "op" value back into the form. It would have been included
-        // by the clicking of any of the submit buttons, but since we took
-        // over, we need to add it back in manually.
-        form.append($('<input>', {
-          name: 'op',
-          value: button_name
-        }));
-        form.submit();
+
+
+      // Re-enable all the submit buttons in the form.
+      form.find('input[type="submit"]').removeAttr('disabled');
+
+      // TODO: This line probably needs a tweak for multi-value file fields.
+      var button_id = widget.find('input.cors-form-submit').attr('id');
+      var ajax = Drupal.ajax[button_id];
+      // Remove the file itself from the form, to avoid sending it to Drupal.
+      $(ajax.form[0]).find('#' + file_input.attr('id')).remove();
+
+      var ajaxOptions = jQuery.extend({}, ajax.options);
+      var completeCallback = function() {};
+
+      // If button_name is not undefined, then we're dealing with a Drupal
+      // submit. When submitting we will make sure that we upload every s3
+      // CORS file first and then trigger the Drupal submit form.
+
+      // When pressing an upload button button_name will be undefined.
+      if (typeof button_name !== 'undefined') {
+        if (remaining_cors_inputs.length !== 0) {
+          completeCallback = function() {
+            S3fsCORSUpload.handleUpload(remaining_cors_inputs.shift(), button_name);
+          };
+        }
+        else {
+          // No more cors s3 files, lets proceed with the normal upload.
+          completeCallback = function() {
+            console.log("No more inputs");
+            // Remove our submit handler first, so we don't infinitely loop.
+            form.unbind('submit');
+            // Add the "op" value back into the form. It would have been included
+            // by the clicking of any of the submit buttons, but since we took
+            // over, we need to add it back in manually.
+            form.append($('<input>', {
+              name: 'op',
+              value: button_name
+            }));
+            form.submit();
+          }
+        }
+        if (jQuery.isArray(ajaxOptions.complete)) {
+          ajaxOptions.complete.push(completeCallback);
+        }
+        else if (typeof ajaxOptions === 'function') {
+          ajaxOptions.complete = [ajaxOptions.complete, completeCallback];
+        }
+        else {
+          ajaxOptions.complete = completeCallback;
+        }
       }
-      else {
-        // Re-enable all the submit buttons in the form.
-        form.find('input[type="submit"]').removeAttr('disabled');
-        
-        // TODO: This line probably needs a tweak for multi-value file fields.
-        var button_id = widget.find('input.cors-form-submit').attr('id');
-        var ajax = Drupal.ajax[button_id];
-        // Remove the file itself from the form, to avoid sending it to Drupal.
-        $(ajax.form[0]).find('#' + file_input.attr('id')).remove();
-        // Submit the widget's subform to Drupal, to inform Drupal that the
-        // file now exists.
-        ajax.form.ajaxSubmit(ajax.options);
-      }
+
+      // Submit the widget's subform to Drupal, to inform Drupal that the
+      // file now exists.
+      ajax.form.ajaxSubmit(ajaxOptions);
     }
   };
-  
+
   /**
    * Receives an XMLHttpRequestProgressEvent and uses it to display current
    * progress if possible.
@@ -171,7 +195,7 @@
       return true;
     }
   };
-  
+
   /**
    * Implements Drupal.behaviors.
    */
@@ -182,7 +206,7 @@
     upload_button.once('s3fs_cors_upload', function() {
       // Prevent Drupal's AJAX file upload code from running.
       upload_button.unbind('mousedown');
-      
+
       // Run our AJAX file upload code when the user clicks the Upload button.
       // Since this attach function will get run again the next time the Upload button
       // appears, we can use jQuery.one() to ensure that the user doesn't accidentally
@@ -193,7 +217,7 @@
         return false;
       });
     });
-    
+
     $('form.s3fs-cors-upload-form', context).once('s3fs_cors_form', function() {
       $(this).submit(function(event) {
         // Get the list of CORS <input>s which have values.
@@ -227,13 +251,16 @@
           $('.throbber', throbber).after('<div class="message" style="margin-right: 15px">CORS Uploads in progress...</div>');
           $(clicked_button).after(throbber);
 
-          // Loop through all the filled CORS <input>s and handle their uploads.
-          // The last will perform the full form submission.
+          // Loop through all the filled CORS <input>s and queue their uploads.
           filled_file_inputs.each(function(ndx, file_input) {
             file_input = $(file_input);
-            var remaining_inputs = filled_file_inputs.length - (ndx+1);
-            S3fsCORSUpload.handleUpload(file_input, remaining_inputs, button_name);
+            remaining_cors_inputs.push(file_input);
           });
+
+          // Calling handleUpload with button_name will trigger the form
+          // submission when the queue is empty
+          S3fsCORSUpload.handleUpload(remaining_cors_inputs.shift(), button_name);
+
           event.preventDefault();
           event.stopPropagation();
           return false;
