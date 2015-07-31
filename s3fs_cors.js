@@ -28,6 +28,7 @@
     }
 
     // For now, we only support single-value file fields.
+    // TODO: Add support for multi-value file fields.
     var file_obj = file_input[0].files[0];
 
     // Disable all the submit buttons, so users can't accidentally mess
@@ -107,7 +108,7 @@
           alert('An error occured during the upload to S3: ' + errorThrown);
           form_cleanup();
         },
-        complete: submit_to_drupal
+        success: submit_to_drupal
       });
     }
 
