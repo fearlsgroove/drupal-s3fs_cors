@@ -20,15 +20,13 @@
     }
 
     if (file_input[0].files === undefined || window.FormData === undefined) {
-      // If we're in IE8/9, or the FormData API is unavailable, fall back to
-      // a non-CORS upload.
-      // TODO: Non-CORS upload.
-      alert('CORS Upload is not supported in IE8 or 9. Sorry.');
+      // If we don't have either of these values, we're probably in IE8/9, or some other unsuppoted browser.
+      alert('CORS Upload is not supported in your browser. Sorry.');
       return;
     }
 
     // For now, we only support single-value file fields.
-    // TODO: Add support for multi-value file fields.
+    // TODO: Add support for multi-value file fields. Maybe. Someday.
     var file_obj = file_input[0].files[0];
 
     // Disable all the submit buttons, so users can't accidentally mess
@@ -201,75 +199,78 @@
    * Implements Drupal.behaviors.
    */
   Drupal.behaviors.S3fsCORSUpload.attach = function(context, settings) {
-    var upload_button = $('input.cors-form-submit', context);
-    // We need to use jQuery.once() here because Drupal runs the attach function
-    // multiple times for some reason.
-    upload_button.once('s3fs_cors_upload', function() {
-      // Prevent Drupal's AJAX file upload code from running.
-      upload_button.unbind('mousedown');
+    // Iterate over each CORS upload button on the page, attaching the appropriate behavior to each one separately.
+    $('input.cors-form-submit').each(function(ndx, element) {
+      var upload_button = $(element);
+      // We need to use jQuery.once() here because Drupal runs the attach function
+      // multiple times for some reason.
+      upload_button.once('s3fs_cors_upload', function() {
+        // Prevent Drupal's AJAX file upload code from running.
+        upload_button.unbind('mousedown');
 
-      // Run our AJAX file upload code when the user clicks the Upload button.
-      // Since this attach function will get run again the next time the Upload button
-      // appears, we can use jQuery.one() to ensure that the user doesn't accidentally
-      // start the upload multiple times.
-      upload_button.one('click', function(e) {
-        var file_input = $(this).siblings('.s3fs-cors-upload-file');
-        S3fsCORSUpload.handleUpload(file_input);
-        return false;
+        // Run our AJAX file upload code when the user clicks the Upload button.
+        // Since this attach function will get run again the next time the Upload button
+        // appears, we can use jQuery.one() to ensure that the user doesn't accidentally
+        // start the upload multiple times.
+        upload_button.one('click', function(e) {
+          var file_input = $(this).siblings('.s3fs-cors-upload-file');
+          S3fsCORSUpload.handleUpload(file_input);
+          return false;
+        });
       });
-    });
 
-    $('form.s3fs-cors-upload-form', context).once('s3fs_cors_form', function() {
-      $(this).submit(function(event) {
-        // Get the list of CORS <input>s which have values.
-        var filled_file_inputs = $('input.s3fs-cors-upload-file', this).filter(
-          function() { return $(this).val(); }
-        );
+      $('form.s3fs-cors-upload-form').once('s3fs_cors_form', function() {
+        $(this).submit(function(event) {
+          // Get the list of CORS <input>s which have values.
+          var filled_file_inputs = $('input.s3fs-cors-upload-file', this).filter(
+            function() { return $(this).val(); }
+          );
 
-        if (filled_file_inputs.length) {
-          var clicked_button = $(this).find('input[type="submit"]:focus');
-          var button_name = clicked_button.val();
-          if (button_name == 'Delete') {
-            // If the Delete button was pressed, submit the form as normal.
-            return true;
-          }
-          else if (button_name == 'Preview') {
-            // Because I haven't found any way to mess with the final file
-            // submission mechanism (ajax.form.ajaxSubmit above), we can't
-            // successfully perform CORS uploads during a preview submit,
-            // because the page will change and javascript execution will die
-            // before the ajax metadata upload is complete. Save submits don't
-            // require ajax metadata upload.
-            alert('Please upload all file fields before previewing this node.');
+          if (filled_file_inputs.length) {
+            var clicked_button = $(this).find('input[type="submit"]:focus');
+            var button_name = clicked_button.val();
+            if (button_name == 'Delete') {
+              // If the Delete button was pressed, submit the form as normal.
+              return true;
+            }
+            else if (button_name == 'Preview') {
+              // Because I haven't found any way to mess with the final file
+              // submission mechanism (ajax.form.ajaxSubmit above), we can't
+              // successfully perform CORS uploads during a preview submit,
+              // because the page will change and javascript execution will die
+              // before the ajax metadata upload is complete. Save submits don't
+              // require ajax metadata upload.
+              alert('Please upload all file fields before previewing this node.');
+              event.preventDefault();
+              event.stopPropagation();
+              return false;
+            }
+
+            // Add a throbber next to the button that got pressed, to inform the
+            // user about the CORS uploads that may not be currently visible.
+            var throbber = $('<div class="ajax-progress ajax-progress-throbber cors"><div class="throbber">&nbsp;</div></div>');
+            $('.throbber', throbber).after('<div class="message" style="margin-right: 15px">CORS Uploads in progress...</div>');
+            $(clicked_button).after(throbber);
+
+            // Loop through all the filled CORS <input>s and queue their uploads.
+            filled_file_inputs.each(function(ndx, file_input) {
+              file_input = $(file_input);
+              remaining_cors_inputs.push(file_input);
+            });
+
+            // Calling handleUpload with button_name will trigger the form
+            // submission when the queue is empty
+            S3fsCORSUpload.handleUpload(remaining_cors_inputs.shift(), button_name);
+
             event.preventDefault();
             event.stopPropagation();
             return false;
           }
-
-          // Add a throbber next to the button that got pressed, to inform the
-          // user about the CORS uploads that may not be currently visible.
-          var throbber = $('<div class="ajax-progress ajax-progress-throbber cors"><div class="throbber">&nbsp;</div></div>');
-          $('.throbber', throbber).after('<div class="message" style="margin-right: 15px">CORS Uploads in progress...</div>');
-          $(clicked_button).after(throbber);
-
-          // Loop through all the filled CORS <input>s and queue their uploads.
-          filled_file_inputs.each(function(ndx, file_input) {
-            file_input = $(file_input);
-            remaining_cors_inputs.push(file_input);
-          });
-
-          // Calling handleUpload with button_name will trigger the form
-          // submission when the queue is empty
-          S3fsCORSUpload.handleUpload(remaining_cors_inputs.shift(), button_name);
-
-          event.preventDefault();
-          event.stopPropagation();
-          return false;
-        }
-        else {
-          // If there were no CORS uploads to perform, submit the form as normal.
-          return true;
-        }
+          else {
+            // If there were no CORS uploads to perform, submit the form as normal.
+            return true;
+          }
+        });
       });
     });
   };
