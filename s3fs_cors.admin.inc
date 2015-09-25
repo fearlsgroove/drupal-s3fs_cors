@@ -21,7 +21,7 @@ function s3fs_cors_admin_form() {
       requests from the specified origin. If the field is empty, your bucket\'s CORS config will be deleted.'),
     '#default_value' => !empty($config['cors_origin']) ? $config['cors_origin'] : '',
   );
-  
+
   $form = system_settings_form($form);
   $form['#submit'][] = '_s3fs_cors_admin_form_submit';
   $form['actions']['submit']['#value'] = 'Apply CORS Config';
