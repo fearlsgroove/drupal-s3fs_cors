@@ -17,18 +17,16 @@ admin/config/media/s3fs/cors page on your admin site, fill in the "CORS Origin"
 field with your site's domain name, and submit it.
 
 To enable the CORS Upload widget, create a new file field (or edit an existing
-one) with the "S3 CORS File Upload" widget. This will change out the usual file
-upload mechanism provided by Drupal with one that looks the same, but behaves
-slightly differently when uploading files.
+one) with the "S3 CORS File Upload" widget. This will switch out the usual file
+upload mechanism provided by Drupal with one that looks the same, but sends
+uploaded files directly to S3, rather than sending them to your Drupal server
+first.
 
 ===================
    Known Issues
 ===================
-CORS uploading is not supported in IE8 or 9. S3FS CORS Upload may same day
-be redesigned to be able to fall back to a non-CORS solution in those ancient
-browsers. Until then, you should strongly recommend that your users upgrade
-to a modern browser. If they cannot, they might try using Google Chrome Frame,
-which is a plugin for IE that makes it run as Chrome under the hood.
+CORS uploading is not supported on older browsers. Your users must use
+Internet Explorer 10+ (or Edge), Chrome 30+, Firefox 28+, or Safari 7+.
 
 S3FS CORS also does not yet support multi-value file fields. If you need CORS
 upload support for such fields, please post a feature request to the S3FS CORS
