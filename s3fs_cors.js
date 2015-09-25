@@ -58,7 +58,10 @@
         filename: file_obj.name,
         filemime: file_obj.type,
         // Need this to look up the form during our signing request.
-        form_build_id: form.find('input[name="form_build_id"]').val()
+        form_build_id: form.find('input[name="form_build_id"]').val(),
+        // The server needs to know which field we're uploading to, so it can determine the s3 key for the file.
+        // The machine name for the field is only indirectly available in the DOM, so we need to do some parsing.
+        field_name: widget.find('input.fid').attr('name').split('[')[0]
       },
       error: function(jqXHR, textStatus, errorThrown) {
         var error_json = jQuery.parseJSON(jqXHR.responseText);
