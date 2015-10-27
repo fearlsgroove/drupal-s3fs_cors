@@ -9,7 +9,7 @@
   var remaining_cors_inputs = [];
   S3fsCORSUpload.handleUpload = function(file_input, button_name) {
     var form = file_input.closest('form');
-    var widget = file_input.parent();
+    var widget = file_input.parents('.field-widget-s3fs-cors');
     // The name of the file that Drupal returns from the signing request.
     // We declare it here so multiple functions can access it.
     var file_real = null;
@@ -32,7 +32,7 @@
     // Disable all the submit buttons, so users can't accidentally mess
     // up the workflow. We'll submit the form via JS after file uploads
     // are complete.
-    form.find('input[type="submit"]').attr('disabled', 'disabled');
+    form.find(':input[type="submit"]').attr('disabled', 'disabled');
 
     var progress_bar = $('<div>', {
       id: 's3fs-cors-progress',
@@ -47,7 +47,7 @@
     function form_cleanup() {
       file_input.show();
       progress_bar.remove();
-      form.find('input[type="submit"]').removeAttr('disabled');
+      form.find(':input[type="submit"]').removeAttr('disabled');
     }
 
     // Step 1: Get the signed S3 upload form from Drupal.
@@ -58,10 +58,10 @@
         filename: file_obj.name,
         filemime: file_obj.type,
         // Need this to look up the form during our signing request.
-        form_build_id: form.find('input[name="form_build_id"]').val(),
+        form_build_id: form.find(':input[name="form_build_id"]').val(),
         // The server needs to know which field we're uploading to, so it can determine the s3 key for the file.
         // The machine name for the field is only indirectly available in the DOM, so we need to do some parsing.
-        field_name: widget.find('input.fid').attr('name').split('[')[0]
+        field_name: widget.find(':input.fid').attr('name').split('[')[0]
       },
       error: function(jqXHR, textStatus, errorThrown) {
         var error_json = jQuery.parseJSON(jqXHR.responseText);
@@ -116,16 +116,16 @@
     // Step 3: Update the file metadata and submit the form to Drupal.
     function submit_to_drupal(data, textStatus, jqXHR) {
       // Update the metadata fields for the file we just uploaded.
-      widget.find('input.filemime').val(file_obj.type);
-      widget.find('input.filesize').val(file_obj.size);
-      widget.find('input.filename').val(file_real);
+      widget.find(':input.filemime').val(file_obj.type);
+      widget.find(':input.filesize').val(file_obj.size);
+      widget.find(':input.filename').val(file_real);
 
 
       // Re-enable all the submit buttons in the form.
-      form.find('input[type="submit"]').removeAttr('disabled');
+      form.find(':input[type="submit"]').removeAttr('disabled');
 
       // TODO: This line probably needs a tweak for multi-value file fields.
-      var button_id = widget.find('input.cors-form-submit').attr('id');
+      var button_id = widget.find(':input.cors-form-submit').attr('id');
       var ajax = Drupal.ajax[button_id];
       // Remove the file itself from the form, to avoid sending it to Drupal.
       $(ajax.form[0]).find('#' + file_input.attr('id')).remove();
@@ -203,7 +203,7 @@
    */
   Drupal.behaviors.S3fsCORSUpload.attach = function(context, settings) {
     // Iterate over each CORS upload button on the page, attaching the appropriate behavior to each one separately.
-    $('input.cors-form-submit').each(function(ndx, element) {
+    $(':input.cors-form-submit').each(function(ndx, element) {
       var upload_button = $(element);
       // We need to use jQuery.once() here because Drupal runs the attach function
       // multiple times for some reason.
@@ -216,7 +216,7 @@
         // appears, we can use jQuery.one() to ensure that the user doesn't accidentally
         // start the upload multiple times.
         upload_button.one('click', function(e) {
-          var file_input = $(this).siblings('.s3fs-cors-upload-file');
+          var file_input = $(this).parents('.field-widget-s3fs-cors').find('.s3fs-cors-upload-file');
           S3fsCORSUpload.handleUpload(file_input);
           return false;
         });
@@ -225,12 +225,12 @@
       $('form.s3fs-cors-upload-form').once('s3fs_cors_form', function() {
         $(this).submit(function(event) {
           // Get the list of CORS <input>s which have values.
-          var filled_file_inputs = $('input.s3fs-cors-upload-file', this).filter(
+          var filled_file_inputs = $(':input.s3fs-cors-upload-file', this).filter(
             function() { return $(this).val(); }
           );
 
           if (filled_file_inputs.length) {
-            var clicked_button = $(this).find('input[type="submit"]:focus');
+            var clicked_button = $(this).find(':input[type="submit"]:focus');
             var button_name = clicked_button.val();
             if (button_name == 'Delete') {
               // If the Delete button was pressed, submit the form as normal.
